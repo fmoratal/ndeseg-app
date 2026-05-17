@@ -77,7 +77,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
     st.session_state.mensajes.append({"rol": "user", "contenido": prompt_usuario})
 
     with st.chat_message("assistant"):
-        with st.spinner("Buscando en la ordenanza y calibrando coordenadas espaciales..."):
+        with st.spinner("Buscando en la ordenanza y renderizando plano de seguridad..."):
             
             resultados = db_collection.query(query_texts=[prompt_usuario], n_results=10)
             contexto_recuperado = ""
@@ -92,41 +92,33 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
                 pass
             
             prompt_sistema = f"""
-            Eres un ingeniero inspector experto en Prevención contra Incendios y Diseño de Planos de Seguridad.
-            Tu objetivo es brindar un Informe Técnico de Ingeniería y mapear los dispositivos de forma PIXEL-PERFECT sobre el plano visual provisto.
-
-            NORMATIVA RECUPERADA:
+            Eres un ingeniero inspector experto en Prevención contra Incendios.
+            Tu objetivo es brindar respuestas exhaustivas, detalladas y con calidad de "Informe Técnico de Ingeniería".
+            Responde a la consulta basándote ÚNICA Y EXCLUSIVAMENTE en el texto de la normativa provista y en la Tabla de Anexos.
+            
+            NORMATIVA RECUPERADA (Artículos Reales de la Ley):
             {contexto_recuperado}
             
-            TABLA DE ANEXOS:
+            TABLA DE ANEXOS (MATRIZ DE REQUISITOS OBLIGATORIOS):
             {tabla_memoria}
             
             CONSULTA DEL USUARIO:
             {prompt_usuario}
             
-            GUÍA DE CALIBRACIÓN GEOMÉTRICA DEL PLANO (Trata la imagen como una matriz de X: 0-100% e Y: 0-100%):
-            - LÍMITES EXTERNOS: El edificio real empieza en X=4, Y=11 y termina en X=96, Y=95. ¡PROHIBIDO colocar dispositivos fuera de este rango!
-            - ACCESO PRINCIPAL (Puerta arriba a la izquierda): Está ubicado exactamente en X=12, Y=12.
-            - OFICINAS IZQUIERDAS (Privadas): Se ubican entre X=5 hasta X=30.
-            - SALA DE DESCANSO / COCINA (Arriba a la derecha): Se ubica entre X=43 hasta X=95 en el eje horizontal, y entre Y=11 hasta Y=41.
-            - OFICINA PLANTA ABIERTA (Centro con 12 escritorios): Se ubica entre X=43 hasta X=95 en el eje horizontal, y entre Y=42 hasta Y=68.
-            - SALA DE REUNIONES GRANDE (Abajo a la derecha): Se ubica entre X=44 hasta X=95 en el eje horizontal, y entre Y=69 hasta Y=95.
-
-            INSTRUCCIONES DE UBICACIÓN LÓGICA:
-            1. DETECTORES DE HUMO/CALOR: En el CENTRO GEOMÉTRICO del techo de cada sala.
-            2. EXTINTORES Y PULSADORES: En los MUROS O TABIQUES, al lado de las puertas de acceso.
-            3. LUCES Y CARTELES DE EMERGENCIA: Cerca de las puertas de salida.
-            4. REGLA ANTI-SUPERPOSICIÓN (¡CRÍTICA!): Si vas a colocar un Cartel de Salida y una Luz de Emergencia en la misma puerta, NUNCA les des las mismas coordenadas exactas. Desplaza uno de ellos unos 4 puntos porcentuales en el eje Y (ej: Luz en Y=10, Cartel en Y=14) para que no se dibujen uno encima del otro.
-
-            Formato obligatorio al final de tu respuesta:
-            Antes del JSON, escribe una sección llamada "PENSAMIENTO DE COORDENADAS". Luego, pon el bloque JSON exacto usando SOLAMENTE los tipos "extintor", "detector", "cartel", "luz":
+            INSTRUCCIONES DE RESPUESTA:
+            1. EXHAUSTIVIDAD: Genera el Informe Técnico detallado dividiéndolo en secciones claras (Extintores, Sistema de Detección, Red Hidráulica y Reserva de Agua).
+            2. MAPPING VISUAL (¡CRÍTICO!): Al final de TODO tu informe técnico, debes agregar un bloque JSON que contenga las coordenadas espaciales estimadas (en porcentaje de 0 a 100 de ancho y alto de la imagen) para ubicar físicamente cada dispositivo que calculaste en base al plano visual proporcionado.
+            
+            Formato exacto requerido al final del mensaje:
             ```json
             [
-              {{"tipo": "extintor", "x_pct": 14, "y_pct": 16, "label": "Extintor ABC 4kg"}},
+              {{"tipo": "extintor", "x_pct": 15, "y_pct": 20, "label": "Extintor ABC 4kg"}},
+              {{"tipo": "detector", "x_pct": 45, "y_pct": 50, "label": "Detector Humo"}},
               {{"tipo": "luz", "x_pct": 12, "y_pct": 9, "label": "Luz Emerg."}},
               {{"tipo": "cartel", "x_pct": 12, "y_pct": 14, "label": "Cartel Salida"}}
             ]
             ```
+            Usa únicamente los tipos "extintor", "detector", "luz" o "cartel".
             """
             
             elementos_peticion = []
@@ -154,7 +146,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
                     texto_informe = re.sub(r'```json.*?```', '', texto_respuesta, flags=re.DOTALL)
                     st.markdown(texto_informe)
                     
-                    # --- MOTOR DE DIBUJO AVANZADO ---
+                    # --- 🎨 MOTOR DE DIBUJO CON MAPEO DINÁMICO DE ESCALA ---
                     imagen_final_mostrar = None
                     if imagen_pil:
                         bloque_json = re.search(r'```json(.*?)```', texto_respuesta, flags=re.DOTALL)
@@ -162,12 +154,19 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
                             try:
                                 datos_dispositivos = json.loads(bloque_json.group(1).strip())
                                 
+                                # Convertimos a modo color RGB para evitar grises
                                 img_dibujo = imagen_pil.copy().convert("RGB")
                                 draw = ImageDraw.Draw(img_dibujo)
                                 ancho, alto = img_dibujo.size
                                 
+                                # 🛠️ SOLUCIÓN: Calcular un Factor de Escala basado en la resolución
+                                # Usamos una milésima parte del promedio de resolución como unidad base
+                                factor_base = (ancho + alto) / 1000.0
+                                
+                                # Adaptar el tamaño de fuente al factor de escala
                                 try:
-                                    font = ImageFont.load_default(size=24)
+                                    font_size = int(factor_base * 12) # Letra grande proporcional
+                                    font = ImageFont.load_default(size=max(font_size, 16)) # Mínimo 16px legible
                                 except Exception:
                                     font = ImageFont.load_default()
                                 
@@ -175,20 +174,24 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
                                     px = int((disp['x_pct'] / 100) * ancho)
                                     py = int((disp['y_pct'] / 100) * alto)
                                     
+                                    # 🛠️ SOLUCIÓN: Los iconos se calculan como múltiplos del factor base (r = radio)
                                     if disp['tipo'] == 'extintor':
-                                        draw.rectangle([px-22, py-22, px+22, py+22], fill=(255, 0, 0), outline="black", width=4)
+                                        r = int(factor_base * 10.0) # Cuadrado Rojo
+                                        draw.rectangle([px-r, py-r, px+r, py+r], fill=(255, 0, 0), outline="black", width=max(int(r/4), 2))
                                     elif disp['tipo'] == 'detector':
-                                        draw.ellipse([px-18, py-18, px+18, py+18], fill=(0, 0, 255), outline="white", width=4)
+                                        r = int(factor_base * 8.0) # Círculo Azul
+                                        draw.ellipse([px-r, py-r, px+r, py+r], fill=(0, 0, 255), outline="white", width=max(int(r/4), 2))
                                     elif disp['tipo'] == 'luz':
-                                        # NUEVO: Círculo Amarillo brillante para Luces
-                                        draw.ellipse([px-20, py-20, px+20, py+20], fill=(255, 255, 0), outline="black", width=4)
-                                    else: # Cartel u otros
-                                        # Triángulo Naranja para Carteles
-                                        draw.polygon([(px, py-24), (px-22, py+20), (px+22, py+20)], fill=(255, 140, 0), outline="black")
+                                        r = int(factor_base * 9.0) # Círculo Amarillo
+                                        draw.ellipse([px-r, py-r, px+r, py+r], fill=(255, 255, 0), outline="black", width=max(int(r/4), 2))
+                                    else: 
+                                        r = int(factor_base * 11.0) # Triángulo Naranja para Carteles
+                                        draw.polygon([(px, py-r), (px-int(r*0.9), py+int(r*0.9)), (px+int(r*0.9), py+int(r*0.9))], fill=(255, 140, 0), outline="black")
                                     
-                                    draw.text((px + 30, py - 12), disp['label'], fill="black", font=font, stroke_width=3, stroke_fill="white")
+                                    # Texto legible con borde de contraste blanco adaptado al factor base
+                                    draw.text((px + int(r * 1.5), py - int(r/2)), disp['label'], fill="black", font=font, stroke_width=int(factor_base*1.5), stroke_fill="white")
                                 
-                                st.image(img_dibujo, caption="📐 Plano de Distribución de Seguridad Generado Automáticamente", use_container_width=True)
+                                st.image(img_dibujo, caption="📐 Plano de Distribución de Seguridad Generado Automáticamente (Escala Adaptada)", use_container_width=True)
                                 imagen_final_mostrar = img_dibujo
                             except Exception as e:
                                 st.warning(f"No se pudo procesar el gráfico automático: {e}")
