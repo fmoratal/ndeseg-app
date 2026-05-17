@@ -77,7 +77,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
     st.session_state.mensajes.append({"rol": "user", "contenido": prompt_usuario})
 
     with st.chat_message("assistant"):
-        with st.spinner("Buscando en la ordenanza y renderizando plano de seguridad..."):
+        with st.spinner("Buscando en la ordenanza y calibrando coordenadas espaciales..."):
             
             resultados = db_collection.query(query_texts=[prompt_usuario], n_results=10)
             contexto_recuperado = ""
@@ -91,32 +91,42 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
             except:
                 pass
             
+            # --- 🚀 PROMPT DE ALTA PRECISIÓN GEOMÉTRICA ---
             prompt_sistema = f"""
-            Eres un ingeniero inspector experto en Prevención contra Incendios.
-            Tu objetivo es brindar respuestas exhaustivas, detalladas y con calidad de "Informe Técnico de Ingeniería".
-            Responde a la consulta basándote ÚNICA Y EXCLUSIVAMENTE en el texto de la normativa provista y en la Tabla de Anexos.
-            
-            NORMATIVA RECUPERADA (Artículos Reales de la Ley):
+            Eres un ingeniero inspector experto en Prevención contra Incendios y Diseño de Planos de Seguridad.
+            Tu objetivo es brindar un Informe Técnico de Ingeniería y mapear los dispositivos de forma PIXEL-PERFECT sobre el plano visual provisto.
+
+            NORMATIVA RECUPERADA:
             {contexto_recuperado}
             
-            TABLA DE ANEXOS (MATRIZ DE REQUISITOS OBLIGATORIOS):
+            TABLA DE ANEXOS:
             {tabla_memoria}
             
             CONSULTA DEL USUARIO:
             {prompt_usuario}
             
-            INSTRUCCIONES DE RESPUESTA:
-            1. EXHAUSTIVIDAD: Genera el Informe Técnico detallado dividiéndolo en secciones claras (Extintores, Sistema de Detección, Red Hidráulica y Reserva de Agua).
-            2. MAPPING VISUAL (¡CRÍTICO!): Al final de TODO tu informe técnico, debes agregar un bloque JSON que contenga las coordenadas espaciales estimadas (en porcentaje de 0 a 100 de ancho y alto de la imagen) para ubicar físicamente cada dispositivo que calculaste en base al plano visual proporcionado.
-            
-            Formato exacto requerido al final del mensaje:
+            GUÍA DE CALIBRACIÓN GEOMÉTRICA DEL PLANO (Trata la imagen como una matriz de X: 0-100% e Y: 0-100%):
+            - LÍMITES EXTERNOS: El edificio real empieza en X=4, Y=11 y termina en X=96, Y=95. ¡PROHIBIDO colocar dispositivos fuera de este rango! (Evita zonas en blanco fuera del mapa).
+            - ACCESO PRINCIPAL (Puerta arriba a la izquierda): Está ubicado exactamente en X=12, Y=12. Los carteles de SALIDA y extintores de entrada deben ir ahí.
+            - OFICINAS IZQUIERDAS (Privadas): Se ubican entre X=5 hasta X=30.
+            - SALA DE DESCANSO / COCINA (Arriba a la derecha): Se ubica entre X=43 hasta X=95 en el eje horizontal, y entre Y=11 hasta Y=41 en el eje vertical.
+            - OFICINA PLANTA ABIERTA (Centro con 12 escritorios): Se ubica entre X=43 hasta X=95 en el eje horizontal, y entre Y=42 hasta Y=68 en el eje vertical.
+            - SALA DE REUNIONES GRANDE (Abajo a la derecha, mesa ovalada): Se ubica entre X=44 hasta X=95 en el eje horizontal, y entre Y=69 hasta Y=95 en el eje vertical.
+
+            INSTRUCCIONES DE UBICACIÓN LÓGICA:
+            1. DETECTORES DE HUMO/CALOR: Deben ir estrictamente en el CENTRO GEOMÉTRICO del techo de cada sala. No los satures ni los pongas pegados a los sofás o muros.
+            2. EXTINTORES Y PULSADORES: Deben ir fijados en los MUROS O TABIQUES, siempre al lado de las puertas de acceso de las habitaciones, NUNCA flotando en el medio de un escritorio o mesa.
+            3. LUCES Y CARTELES DE EMERGENCIA: Colócalos justo encima de los marcos de las puertas de salida de cada ambiente.
+
+            Formato obligatorio al final de tu respuesta:
+            Antes del JSON, escribe una sección llamada "PENSAMIENTO DE COORDENADAS" donde verifiques que cada punto caiga dentro de los rangos correctos de las habitaciones. Luego, pon el bloque JSON exacto:
             ```json
             [
-              {{"tipo": "extintor", "x_pct": 15, "y_pct": 20, "label": "Extintor ABC 4kg"}},
-              {{"tipo": "detector", "x_pct": 45, "y_pct": 50, "label": "Detector Humo"}}
+              {{"tipo": "extintor", "x_pct": 14, "y_pct": 16, "label": "Extintor ABC 4kg"}},
+              {{"tipo": "detector", "x_pct": 68, "y_pct": 25, "label": "Detector Humo"}}
             ]
             ```
-            Usa únicamente los tipos "extintor", "detector", "alarma" o "luces". Colócalos de manera estratégica.
+            Usa únicamente los tipos "extintor", "detector", "alarma" o "luces".
             """
             
             elementos_peticion = []
@@ -141,10 +151,11 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
                     estado_cascada.empty()
                     texto_respuesta = respuesta.text
                     
+                    # Separamos el JSON para la impresión en pantalla del informe
                     texto_informe = re.sub(r'```json.*?```', '', texto_respuesta, flags=re.DOTALL)
                     st.markdown(texto_informe)
                     
-                    # --- 🎨 MOTOR DE DIBUJO AVANZADO EN COLOR Y ALTA RESOLUCIÓN ---
+                    # --- MOTOR DE DIBUJO AVANZADO ---
                     imagen_final_mostrar = None
                     if imagen_pil:
                         bloque_json = re.search(r'```json(.*?)```', texto_respuesta, flags=re.DOTALL)
@@ -152,34 +163,26 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
                             try:
                                 datos_dispositivos = json.loads(bloque_json.group(1).strip())
                                 
-                                # 🛠️ SOLUCIÓN 1: Convertimos explícitamente a modo color RGB para evitar grises
                                 img_dibujo = imagen_pil.copy().convert("RGB")
                                 draw = ImageDraw.Draw(img_dibujo)
                                 ancho, alto = img_dibujo.size
                                 
-                                # 🛠️ SOLUCIÓN 2: Cargar tipografía grande para evitar texto milimétrico
                                 try:
                                     font = ImageFont.load_default(size=24)
                                 except Exception:
-                                    font = ImageFont.load_default() # Fallback por si la versión de Pillow es antigua
+                                    font = ImageFont.load_default()
                                 
                                 for disp in datos_dispositivos:
                                     px = int((disp['x_pct'] / 100) * ancho)
                                     py = int((disp['y_pct'] / 100) * alto)
                                     
-                                    # 🛠️ SOLUCIÓN 3: Iconos mucho más grandes (radio 22px) y contornos gruesos (width=4)
                                     if disp['tipo'] == 'extintor':
-                                        # Cuadrado Rojo brillante para Extintores
                                         draw.rectangle([px-22, py-22, px+22, py+22], fill=(255, 0, 0), outline="black", width=4)
                                     elif disp['tipo'] == 'detector':
-                                        # Círculo Azul intenso para Detectores de Humo
                                         draw.ellipse([px-18, py-18, px+18, py+18], fill=(0, 0, 255), outline="white", width=4)
                                     else:
-                                        # Triángulo Naranja brillante para Alarmas y Luces
                                         draw.polygon([(px, py-24), (px-22, py+20), (px+22, py+20)], fill=(255, 140, 0), outline="black")
                                     
-                                    # 🛠️ SOLUCIÓN 4: Texto legible con borde de contraste blanco para que resalte
-                                    # Desplazamos la etiqueta un poco a la derecha del icono grande (px + 30)
                                     draw.text((px + 30, py - 12), disp['label'], fill="black", font=font, stroke_width=3, stroke_fill="white")
                                 
                                 st.image(img_dibujo, caption="📐 Plano de Distribución de Seguridad Generado Automáticamente", use_container_width=True)
