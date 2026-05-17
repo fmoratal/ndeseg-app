@@ -3,6 +3,7 @@ import chromadb
 from google import genai
 from google.genai import types
 import os
+from PIL import Image  # <-- Nueva librería para manejar los píxeles del plano
 
 # --- 1. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Asistente NDEseg - Ordenanza 468", page_icon="🔥", layout="centered")
@@ -10,7 +11,7 @@ st.set_page_config(page_title="Asistente NDEseg - Ordenanza 468", page_icon="�
 # Llave de API segura desde los Secrets de Streamlit
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"] 
 
-# Lista de modelos en cascada
+# Lista de modelos en cascada (¡Importante! Todos estos soportan Visión de imágenes)
 CASCADA_MODELOS = [
     'gemini-2.0-flash',       
     'gemini-2.5-pro',         
@@ -29,18 +30,14 @@ def init_sistema():
     chroma_client = chromadb.PersistentClient(path=ruta_bd)
     
     try:
-        # Intentamos abrir la colección si ya existe en el servidor
         collection = chroma_client.get_collection(name="ordenanza_468_limpia")
     except Exception:
-        # Si no existe, la creamos de forma nativa en Linux
         collection = chroma_client.create_collection(name="ordenanza_468_limpia")
         
-        # Buscamos el archivo con toda la ley detallada
         if os.path.exists("normativa_completa.txt"):
             with open("normativa_completa.txt", "r", encoding="utf-8") as f:
                 texto_completo = f.read()
             
-            # Separamos de forma inteligente por la palabra ARTICULO para mantener el orden legal
             bloques = [b.strip() for b in texto_completo.split("ARTICULO") if b.strip()]
             
             if len(bloques) <= 1:
@@ -49,7 +46,6 @@ def init_sistema():
             documentos_finales = [f"ARTICULO {b}" if not b.startswith("CAPITULO") else b for b in bloques]
             ids = [f"art_{i}" for i in range(len(documentos_finales))]
             
-            # Guardamos todos los artículos de la ley en la base de datos
             collection.add(documents=documentos_finales, ids=ids)
             
     return client, collection
@@ -61,8 +57,17 @@ except Exception as e:
     st.stop()
 
 # --- 3. DISEÑO DE LA INTERFAZ ---
-st.title("🔥 NDEseg: Ordenanza 468/14")
-st.markdown("Escribe tu consulta y el sistema buscará en la normativa, realizando los cálculos necesarios según el área o uso que especifiques.")
+st.title("🔥 NDEseg: Ordenanza 468/14 + Planos")
+st.markdown("Escribe tu consulta y el sistema buscará en la normativa. **Opcional:** Sube una imagen de tu plano para ubicar los dispositivos en el espacio.")
+
+# 🛠️ NUEVO: El cargador de planos (Se renderiza arriba para que sea accesible)
+archivo_plano = st.file_uploader("📂 Sube la imagen del plano (PNG, JPG, JPEG)", type=["png", "jpg", "jpeg"])
+
+# Si el usuario sube un plano, se lo mostramos en pantalla como confirmación
+imagen_pil = None
+if archivo_plano:
+    imagen_pil = Image.open(archivo_plano)
+    st.image(imagen_pil, caption="📐 Plano cargado correctamente", use_container_width=True)
 
 # Memoria del chat
 if "mensajes" not in st.session_state:
@@ -73,14 +78,14 @@ for msg in st.session_state.mensajes:
         st.markdown(msg["contenido"])
 
 # --- 4. LÓGICA DE BÚSQUEDA Y CASCADA ---
-if prompt_usuario := st.chat_input("Ej. ¿Cuántos detectores necesito en una oficina de 200m2?"):
+if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos detectores debo ubicar en este plano de 200m2?"):
     
     with st.chat_message("user"):
         st.markdown(prompt_usuario)
     st.session_state.mensajes.append({"rol": "user", "contenido": prompt_usuario})
 
     with st.chat_message("assistant"):
-        with st.spinner("Buscando en la ordenanza y calculando..."):
+        with st.spinner("Buscando en la ordenanza y analizando distribución espacial..."):
             
             # Buscamos los artículos más relevantes en base a lo que escribió el usuario
             resultados = db_collection.query(
@@ -100,6 +105,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Cuántos detectores necesito en una of
             except:
                 pass
             
+            # PROMPT EVOLUCIONADO: Ahora le exige a Gemini analizar la imagen espacialmente si existe
             prompt_sistema = f"""
             Eres un ingeniero inspector experto en Prevención contra Incendios.
             Tu objetivo es brindar respuestas exhaustivas, detalladas y con calidad de "Informe Técnico de Ingeniería".
@@ -114,12 +120,23 @@ if prompt_usuario := st.chat_input("Ej. ¿Cuántos detectores necesito en una of
             CONSULTA DEL USUARIO:
             {prompt_usuario}
             
-            INSTRUCCIONES ESTRICTAS:
-            1. EXHAUSTIVIDAD: No des respuestas cortas. Estructura tu respuesta como un Informe Técnico detallado dividiéndolo en secciones claras (Extintores, Sistema de Detección, Red Hidráulica y Reserva de Agua).
-            2. VERIFICACIÓN INICIAL: Revisa la "TABLA DE ANEXOS" para determinar qué sistemas son obligatorios (SI) para el uso y superficie consultados.
-            3. CÁLCULO DE CANTIDADES (¡VITAL!): Por cada sistema que sea obligatorio, DEBES hacer la matemática y estimar cantidades basándote en los artículos de la ley provistos.
-            4. Cita textualmente el artículo y la fila de la tabla en los que basaste tus cálculos.
+            INSTRUCCIONES DE ANÁLISIS ESPACIAL (SI HAY IMAGEN ADJUNTA):
+            1. Mira detalladamente la imagen del plano provista. Identifica los accesos, salidas, pasillos y habitaciones.
+            2. Determina las zonas de mayor riesgo y los puntos estratégicos exactos donde se deben colocar los extintores (cerca de tableros eléctricos, salidas, etc.).
+            3. Para el Sistema de Detección (Espaciamiento S=9m), indica visualmente dónde deberían colgarse los sensores en el techo de cada habitación para evitar zonas muertas.
+            
+            INSTRUCCIONES DE RESPUESTA:
+            1. EXHAUSTIVIDAD: Estructura tu respuesta como un Informe Técnico detallado dividiéndolo en secciones claras (Extintores, Sistema de Detección, Red Hidráulica y Reserva de Agua).
+            2. UBICACIÓN DETALLADA: En la sección correspondiente, describe textualmente de forma exacta dónde colocar cada dispositivo dentro del plano analizado (ej: "Colocar un extintor ABC de 4kg a la derecha de la puerta de acceso principal en el área administrativa...").
+            3. Cita textualmente el artículo y la fila de la tabla en los que basaste tus cálculos.
             """
+            
+            # 🛠️ NUEVO: Preparar los contenidos para Gemini. 
+            # Si el usuario subió una imagen, se la empaquetamos junto con las instrucciones en un array multimoldal.
+            elementos_peticion = []
+            if imagen_pil:
+                elementos_peticion.append(imagen_pil)
+            elementos_peticion.append(prompt_sistema)
             
             respuesta_generada = False
             ultimo_error = "" 
@@ -129,9 +146,10 @@ if prompt_usuario := st.chat_input("Ej. ¿Cuántos detectores necesito en una of
                 try:
                     estado_cascada.info(f"🔄 Intentando conectar con: {modelo_actual}...")
                     
+                    # Ejecutamos la petición multimodal
                     respuesta = gemini_client.models.generate_content(
                         model=modelo_actual,
-                        contents=prompt_sistema,
+                        contents=elementos_peticion,
                         config=types.GenerateContentConfig(temperature=0.1)
                     )
                     
