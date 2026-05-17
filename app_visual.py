@@ -18,23 +18,41 @@ CASCADA_MODELOS = [
     'gemini-flash-latest'     # El comodín final
 ]
 
-# --- 2. INICIALIZACIÓN DE IA Y BASE DE DATOS ---
+# --- 2. INICIALIZACIÓN DE IA Y BASE DE DATOS AUTO-GENERABLE ---
 @st.cache_resource
 def init_sistema():
     client = genai.Client(api_key=GOOGLE_API_KEY)
     
-    # Truco para que el .exe encuentre siempre la base de datos
     directorio_actual = os.path.dirname(os.path.abspath(__file__))
     ruta_bd = os.path.join(directorio_actual, "base_datos_normativa")
     
     chroma_client = chromadb.PersistentClient(path=ruta_bd)
-    collection = chroma_client.get_collection(name="ordenanza_468_limpia")
+    
+    # Intentamos abrir la colección existente, si falla la creamos de cero
+    try:
+        collection = chroma_client.get_collection(name="ordenanza_468_limpia")
+    except Exception:
+        # Forzamos la creación limpia en la nube usando los documentos de texto
+        collection = chroma_client.create_collection(name="ordenanza_468_limpia")
+        
+        # Leer fragmentos para procesar e indexar
+        lineas_a_indexar = []
+        if os.path.exists("anexos_limpios.txt"):
+            with open("anexos_limpios.txt", "r", encoding="utf-8") as f:
+                texto_completo = f.read()
+                # Segmentamos el texto por párrafos o bloques dobles para no saturar
+                lineas_a_indexar = [bloque.strip() for bloque in texto_completo.split("\n\n") if bloque.strip()]
+        
+        if lineas_a_indexar:
+            ids = [f"id_{i}" for i in range(len(lineas_a_indexar))]
+            collection.add(documents=lineas_a_indexar, ids=ids)
+            
     return client, collection
 
 try:
     gemini_client, db_collection = init_sistema()
 except Exception as e:
-    st.error(f"⚠️ Error al conectar con la base de datos: {e}")
+    st.error(f"⚠️ Error al conectar o generar la base de datos: {e}")
     st.stop()
 
 # --- 3. DISEÑO DE LA INTERFAZ ---
@@ -143,7 +161,6 @@ if prompt_usuario := st.chat_input("Ej. ¿Cuántos detectores necesito en una of
                 
                 if not respuesta_generada:
                     estado_cascada.empty()
-                    # Aquí mostramos el verdadero error que nos manda Google
                     st.error("⚠️ Los servidores de Google rechazaron todas las peticiones.")
                     with st.expander("Ver detalle técnico del error"):
                         st.code(ultimo_error)
