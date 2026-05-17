@@ -3,18 +3,15 @@ import chromadb
 from google import genai
 from google.genai import types
 import os
-# --- 🛠️ NUEVAS LIBRERÍAS GRÁFICAS Y MATEMÁTICAS ---
-from PIL import Image, ImageDraw, ImageFont  # Pillow para dibujar en píxeles
+from PIL import Image, ImageDraw, ImageFont  
 import json
 import re
 
 # --- 1. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Asistente NDEseg - Ordenanza 468", page_icon="🔥", layout="centered")
 
-# Llave de API segura desde los Secrets de Streamlit
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"] 
 
-# Lista de modelos en cascada (Asegúrate de usar modelos con capacidad de Visión)
 CASCADA_MODELOS = [
     'gemini-2.0-flash',       
     'gemini-2.5-pro',         
@@ -52,11 +49,10 @@ except Exception as e:
     st.error(f"⚠️ Error al conectar o generar la base de datos: {e}")
     st.stop()
 
-# --- 3. DISEÑO DE LA INTERFAZ EVOLUCIONADA ---
+# --- 3. DISEÑO DE LA INTERFAZ ---
 st.title("🔥 NDEseg: Mapas de Seguridad Inteligentes")
 st.markdown("Sube la imagen de tu plano y escribe tu consulta para generar el informe técnico legal y el mapa visual de dispositivos.")
 
-# Cargador de planos (se renderiza arriba para que sea accesible)
 archivo_plano = st.file_uploader("📂 Sube la imagen del plano (PNG, JPG, JPEG)", type=["png", "jpg", "jpeg"])
 
 imagen_pil = None
@@ -70,7 +66,6 @@ if "mensajes" not in st.session_state:
 for msg in st.session_state.mensajes:
     with st.chat_message(msg["rol"]):
         st.markdown(msg["contenido"])
-        # Si el mensaje contiene una imagen procesada, la mostramos en el chat
         if "imagen_dibujada" in msg:
             st.image(msg["imagen_dibujada"], caption="📐 Ubicación de Dispositivos Generada")
 
@@ -84,7 +79,6 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
     with st.chat_message("assistant"):
         with st.spinner("Buscando en la ordenanza y renderizando plano de seguridad..."):
             
-            # Buscamos los artículos más relevantes
             resultados = db_collection.query(query_texts=[prompt_usuario], n_results=10)
             contexto_recuperado = ""
             if resultados['documents'] and resultados['documents'][0]:
@@ -97,7 +91,6 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
             except:
                 pass
             
-            # --- 🚀 PROMPT REVOLUCIONADO: Exigimos JSON al final ---
             prompt_sistema = f"""
             Eres un ingeniero inspector experto en Prevención contra Incendios.
             Tu objetivo es brindar respuestas exhaustivas, detalladas y con calidad de "Informe Técnico de Ingeniería".
@@ -148,45 +141,47 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
                     estado_cascada.empty()
                     texto_respuesta = respuesta.text
                     
-                    # Separamos el JSON del texto del informe técnico
                     texto_informe = re.sub(r'```json.*?```', '', texto_respuesta, flags=re.DOTALL)
                     st.markdown(texto_informe)
                     
-                    # --- 🎨 MOTOR DE DIBUJO ---
+                    # --- 🎨 MOTOR DE DIBUJO AVANZADO EN COLOR Y ALTA RESOLUCIÓN ---
                     imagen_final_mostrar = None
                     if imagen_pil:
-                        # Buscamos el JSON en la respuesta de Gemini
                         bloque_json = re.search(r'```json(.*?)```', texto_respuesta, flags=re.DOTALL)
                         if bloque_json:
                             try:
                                 datos_dispositivos = json.loads(bloque_json.group(1).strip())
                                 
-                                # Creamos una copia del plano para dibujar encima sin romper el original
-                                img_dibujo = imagen_pil.copy()
+                                # 🛠️ SOLUCIÓN 1: Convertimos explícitamente a modo color RGB para evitar grises
+                                img_dibujo = imagen_pil.copy().convert("RGB")
                                 draw = ImageDraw.Draw(img_dibujo)
                                 ancho, alto = img_dibujo.size
                                 
+                                # 🛠️ SOLUCIÓN 2: Cargar tipografía grande para evitar texto milimétrico
+                                try:
+                                    font = ImageFont.load_default(size=24)
+                                except Exception:
+                                    font = ImageFont.load_default() # Fallback por si la versión de Pillow es antigua
+                                
                                 for disp in datos_dispositivos:
-                                    # Convertimos los porcentajes de la IA a píxeles reales del plano
                                     px = int((disp['x_pct'] / 100) * ancho)
                                     py = int((disp['y_pct'] / 100) * alto)
                                     
-                                    # Dibujamos según el tipo de dispositivo
+                                    # 🛠️ SOLUCIÓN 3: Iconos mucho más grandes (radio 22px) y contornos gruesos (width=4)
                                     if disp['tipo'] == 'extintor':
-                                        # Cuadrado Rojo para Extintores
-                                        draw.rectangle([px-10, py-10, px+10, py+10], fill="red", outline="black", width=2)
+                                        # Cuadrado Rojo brillante para Extintores
+                                        draw.rectangle([px-22, py-22, px+22, py+22], fill=(255, 0, 0), outline="black", width=4)
                                     elif disp['tipo'] == 'detector':
-                                        # Círculo Azul para Detectores
-                                        draw.ellipse([px-8, py-8, px+8, py+8], fill="blue", outline="white", width=2)
+                                        # Círculo Azul intenso para Detectores de Humo
+                                        draw.ellipse([px-18, py-18, px+18, py+18], fill=(0, 0, 255), outline="white", width=4)
                                     else:
-                                        # Triángulo Amarillo para Alarmas o Luces
-                                        draw.polygon([(px, py-10), (px-10, py+10), (px+10, py+10)], fill="orange", outline="black")
+                                        # Triángulo Naranja brillante para Alarmas y Luces
+                                        draw.polygon([(px, py-24), (px-22, py+20), (px+22, py+20)], fill=(255, 140, 0), outline="black")
                                     
-                                    # Dibujamos la leyenda (Label) al lado del dispositivo
-                                    # Usamos un color oscuro para legibilidad (Negro/Gris)
-                                    draw.text((px + 15, py - 5), disp['label'], fill="black")
+                                    # 🛠️ SOLUCIÓN 4: Texto legible con borde de contraste blanco para que resalte
+                                    # Desplazamos la etiqueta un poco a la derecha del icono grande (px + 30)
+                                    draw.text((px + 30, py - 12), disp['label'], fill="black", font=font, stroke_width=3, stroke_fill="white")
                                 
-                                # Mostramos el plano con los elementos dibujados
                                 st.image(img_dibujo, caption="📐 Plano de Distribución de Seguridad Generado Automáticamente", use_container_width=True)
                                 imagen_final_mostrar = img_dibujo
                             except Exception as e:
@@ -198,7 +193,6 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
                         with st.expander("🔍 Ver los artículos originales extraídos del PDF"):
                             st.info(contexto_recuperado)
                     
-                    # Guardamos todo en la sesión
                     msg_guardar = {"rol": "assistant", "contenido": texto_informe}
                     if imagen_final_mostrar:
                         msg_guardar["imagen_dibujada"] = imagen_final_mostrar
