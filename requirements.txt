@@ -1,6 +1,9 @@
 streamlit
-chromadb
+chromadb==0.4.24
 google-genai
 onnxruntime
 tokenizers
 python-docx
+protobuf==4.25.3
+opentelemetry-api==1.24.0
+opentelemetry-sdk==1.24.0
