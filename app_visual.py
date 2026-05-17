@@ -91,7 +91,6 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
             except:
                 pass
             
-            # --- 🚀 PROMPT DE ALTA PRECISIÓN GEOMÉTRICA ---
             prompt_sistema = f"""
             Eres un ingeniero inspector experto en Prevención contra Incendios y Diseño de Planos de Seguridad.
             Tu objetivo es brindar un Informe Técnico de Ingeniería y mapear los dispositivos de forma PIXEL-PERFECT sobre el plano visual provisto.
@@ -106,27 +105,28 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
             {prompt_usuario}
             
             GUÍA DE CALIBRACIÓN GEOMÉTRICA DEL PLANO (Trata la imagen como una matriz de X: 0-100% e Y: 0-100%):
-            - LÍMITES EXTERNOS: El edificio real empieza en X=4, Y=11 y termina en X=96, Y=95. ¡PROHIBIDO colocar dispositivos fuera de este rango! (Evita zonas en blanco fuera del mapa).
-            - ACCESO PRINCIPAL (Puerta arriba a la izquierda): Está ubicado exactamente en X=12, Y=12. Los carteles de SALIDA y extintores de entrada deben ir ahí.
+            - LÍMITES EXTERNOS: El edificio real empieza en X=4, Y=11 y termina en X=96, Y=95. ¡PROHIBIDO colocar dispositivos fuera de este rango!
+            - ACCESO PRINCIPAL (Puerta arriba a la izquierda): Está ubicado exactamente en X=12, Y=12.
             - OFICINAS IZQUIERDAS (Privadas): Se ubican entre X=5 hasta X=30.
-            - SALA DE DESCANSO / COCINA (Arriba a la derecha): Se ubica entre X=43 hasta X=95 en el eje horizontal, y entre Y=11 hasta Y=41 en el eje vertical.
-            - OFICINA PLANTA ABIERTA (Centro con 12 escritorios): Se ubica entre X=43 hasta X=95 en el eje horizontal, y entre Y=42 hasta Y=68 en el eje vertical.
-            - SALA DE REUNIONES GRANDE (Abajo a la derecha, mesa ovalada): Se ubica entre X=44 hasta X=95 en el eje horizontal, y entre Y=69 hasta Y=95 en el eje vertical.
+            - SALA DE DESCANSO / COCINA (Arriba a la derecha): Se ubica entre X=43 hasta X=95 en el eje horizontal, y entre Y=11 hasta Y=41.
+            - OFICINA PLANTA ABIERTA (Centro con 12 escritorios): Se ubica entre X=43 hasta X=95 en el eje horizontal, y entre Y=42 hasta Y=68.
+            - SALA DE REUNIONES GRANDE (Abajo a la derecha): Se ubica entre X=44 hasta X=95 en el eje horizontal, y entre Y=69 hasta Y=95.
 
             INSTRUCCIONES DE UBICACIÓN LÓGICA:
-            1. DETECTORES DE HUMO/CALOR: Deben ir estrictamente en el CENTRO GEOMÉTRICO del techo de cada sala. No los satures ni los pongas pegados a los sofás o muros.
-            2. EXTINTORES Y PULSADORES: Deben ir fijados en los MUROS O TABIQUES, siempre al lado de las puertas de acceso de las habitaciones, NUNCA flotando en el medio de un escritorio o mesa.
-            3. LUCES Y CARTELES DE EMERGENCIA: Colócalos justo encima de los marcos de las puertas de salida de cada ambiente.
+            1. DETECTORES DE HUMO/CALOR: En el CENTRO GEOMÉTRICO del techo de cada sala.
+            2. EXTINTORES Y PULSADORES: En los MUROS O TABIQUES, al lado de las puertas de acceso.
+            3. LUCES Y CARTELES DE EMERGENCIA: Cerca de las puertas de salida.
+            4. REGLA ANTI-SUPERPOSICIÓN (¡CRÍTICA!): Si vas a colocar un Cartel de Salida y una Luz de Emergencia en la misma puerta, NUNCA les des las mismas coordenadas exactas. Desplaza uno de ellos unos 4 puntos porcentuales en el eje Y (ej: Luz en Y=10, Cartel en Y=14) para que no se dibujen uno encima del otro.
 
             Formato obligatorio al final de tu respuesta:
-            Antes del JSON, escribe una sección llamada "PENSAMIENTO DE COORDENADAS" donde verifiques que cada punto caiga dentro de los rangos correctos de las habitaciones. Luego, pon el bloque JSON exacto:
+            Antes del JSON, escribe una sección llamada "PENSAMIENTO DE COORDENADAS". Luego, pon el bloque JSON exacto usando SOLAMENTE los tipos "extintor", "detector", "cartel", "luz":
             ```json
             [
               {{"tipo": "extintor", "x_pct": 14, "y_pct": 16, "label": "Extintor ABC 4kg"}},
-              {{"tipo": "detector", "x_pct": 68, "y_pct": 25, "label": "Detector Humo"}}
+              {{"tipo": "luz", "x_pct": 12, "y_pct": 9, "label": "Luz Emerg."}},
+              {{"tipo": "cartel", "x_pct": 12, "y_pct": 14, "label": "Cartel Salida"}}
             ]
             ```
-            Usa únicamente los tipos "extintor", "detector", "alarma" o "luces".
             """
             
             elementos_peticion = []
@@ -151,7 +151,6 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
                     estado_cascada.empty()
                     texto_respuesta = respuesta.text
                     
-                    # Separamos el JSON para la impresión en pantalla del informe
                     texto_informe = re.sub(r'```json.*?```', '', texto_respuesta, flags=re.DOTALL)
                     st.markdown(texto_informe)
                     
@@ -180,7 +179,11 @@ if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesit
                                         draw.rectangle([px-22, py-22, px+22, py+22], fill=(255, 0, 0), outline="black", width=4)
                                     elif disp['tipo'] == 'detector':
                                         draw.ellipse([px-18, py-18, px+18, py+18], fill=(0, 0, 255), outline="white", width=4)
-                                    else:
+                                    elif disp['tipo'] == 'luz':
+                                        # NUEVO: Círculo Amarillo brillante para Luces
+                                        draw.ellipse([px-20, py-20, px+20, py+20], fill=(255, 255, 0), outline="black", width=4)
+                                    else: # Cartel u otros
+                                        # Triángulo Naranja para Carteles
                                         draw.polygon([(px, py-24), (px-22, py+20), (px+22, py+20)], fill=(255, 140, 0), outline="black")
                                     
                                     draw.text((px + 30, py - 12), disp['label'], fill="black", font=font, stroke_width=3, stroke_fill="white")
