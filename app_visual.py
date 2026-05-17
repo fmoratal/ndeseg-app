@@ -3,15 +3,18 @@ import chromadb
 from google import genai
 from google.genai import types
 import os
-from PIL import Image, ImageDraw  # <-- Cargamos el motor de dibujo de Python
+# --- 🛠️ NUEVAS LIBRERÍAS GRÁFICAS Y MATEMÁTICAS ---
+from PIL import Image, ImageDraw, ImageFont  # Pillow para dibujar en píxeles
 import json
 import re
 
 # --- 1. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Asistente NDEseg - Ordenanza 468", page_icon="🔥", layout="centered")
 
+# Llave de API segura desde los Secrets de Streamlit
 GOOGLE_API_KEY = st.secrets["GOOGLE_API_KEY"] 
 
+# Lista de modelos en cascada (Asegúrate de usar modelos con capacidad de Visión)
 CASCADA_MODELOS = [
     'gemini-2.0-flash',       
     'gemini-2.5-pro',         
@@ -49,10 +52,11 @@ except Exception as e:
     st.error(f"⚠️ Error al conectar o generar la base de datos: {e}")
     st.stop()
 
-# --- 3. DISEÑO DE LA INTERFAZ ---
-st.title("🔥 NDEseg: Ordenanza 468/14 + Planos Inteligentes")
-st.markdown("Sube la imagen de tu plano y escribe tu consulta para generar el informe y el mapa de dispositivos.")
+# --- 3. DISEÑO DE LA INTERFAZ EVOLUCIONADA ---
+st.title("🔥 NDEseg: Mapas de Seguridad Inteligentes")
+st.markdown("Sube la imagen de tu plano y escribe tu consulta para generar el informe técnico legal y el mapa visual de dispositivos.")
 
+# Cargador de planos (se renderiza arriba para que sea accesible)
 archivo_plano = st.file_uploader("📂 Sube la imagen del plano (PNG, JPG, JPEG)", type=["png", "jpg", "jpeg"])
 
 imagen_pil = None
@@ -66,11 +70,12 @@ if "mensajes" not in st.session_state:
 for msg in st.session_state.mensajes:
     with st.chat_message(msg["rol"]):
         st.markdown(msg["contenido"])
+        # Si el mensaje contiene una imagen procesada, la mostramos en el chat
         if "imagen_dibujada" in msg:
             st.image(msg["imagen_dibujada"], caption="📐 Ubicación de Dispositivos Generada")
 
 # --- 4. LÓGICA DE BÚSQUEDA Y DIBUJO ---
-if prompt_usuario := st.chat_input("Ej. ¿Qué necesito para esta oficina de 165m2 y dónde ubico los dispositivos?"):
+if prompt_usuario := st.chat_input("Ej. ¿Dónde y cuántos dispositivos necesito en este plano de 165m2?"):
     
     with st.chat_message("user"):
         st.markdown(prompt_usuario)
@@ -79,6 +84,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué necesito para esta oficina de 165
     with st.chat_message("assistant"):
         with st.spinner("Buscando en la ordenanza y renderizando plano de seguridad..."):
             
+            # Buscamos los artículos más relevantes
             resultados = db_collection.query(query_texts=[prompt_usuario], n_results=10)
             contexto_recuperado = ""
             if resultados['documents'] and resultados['documents'][0]:
@@ -91,24 +97,24 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué necesito para esta oficina de 165
             except:
                 pass
             
-            # Ajustamos el prompt para exigir una sección JSON limpia al final de la respuesta
+            # --- 🚀 PROMPT REVOLUCIONADO: Exigimos JSON al final ---
             prompt_sistema = f"""
             Eres un ingeniero inspector experto en Prevención contra Incendios.
             Tu objetivo es brindar respuestas exhaustivas, detalladas y con calidad de "Informe Técnico de Ingeniería".
-            Responde a la consulta basándote ÚNICA Y EXCLUSIVAMENTE en la normativa provista y en la Tabla de Anexos.
+            Responde a la consulta basándote ÚNICA Y EXCLUSIVAMENTE en el texto de la normativa provista y en la Tabla de Anexos.
             
-            NORMATIVA RECUPERADA:
+            NORMATIVA RECUPERADA (Artículos Reales de la Ley):
             {contexto_recuperado}
             
-            TABLA DE ANEXOS:
+            TABLA DE ANEXOS (MATRIZ DE REQUISITOS OBLIGATORIOS):
             {tabla_memoria}
             
             CONSULTA DEL USUARIO:
             {prompt_usuario}
             
             INSTRUCCIONES DE RESPUESTA:
-            1. EXHAUSTIVIDAD: Genera el "INFORME TÉCNICO DE INGENIERÍA" completo como lo venías haciendo.
-            2. COORDENADAS DE MAPEO (¡CRÍTICO!): Al final de TODO tu informe técnico, debes agregar un bloque JSON que contenga las coordenadas espaciales estimadas (en porcentaje de 0 a 100 de ancho y alto de la imagen) para ubicar físicamente cada dispositivo que calculaste en base al plano visual proporcionado.
+            1. EXHAUSTIVIDAD: Genera el Informe Técnico detallado dividiéndolo en secciones claras (Extintores, Sistema de Detección, Red Hidráulica y Reserva de Agua).
+            2. MAPPING VISUAL (¡CRÍTICO!): Al final de TODO tu informe técnico, debes agregar un bloque JSON que contenga las coordenadas espaciales estimadas (en porcentaje de 0 a 100 de ancho y alto de la imagen) para ubicar físicamente cada dispositivo que calculaste en base al plano visual proporcionado.
             
             Formato exacto requerido al final del mensaje:
             ```json
@@ -117,7 +123,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué necesito para esta oficina de 165
               {{"tipo": "detector", "x_pct": 45, "y_pct": 50, "label": "Detector Humo"}}
             ]
             ```
-            Usa únicamente los tipos "extintor", "detector", "alarma" o "luces". Colócalos de manera estratégica en base a la distribución visual.
+            Usa únicamente los tipos "extintor", "detector", "alarma" o "luces". Colócalos de manera estratégica.
             """
             
             elementos_peticion = []
@@ -146,7 +152,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué necesito para esta oficina de 165
                     texto_informe = re.sub(r'```json.*?```', '', texto_respuesta, flags=re.DOTALL)
                     st.markdown(texto_informe)
                     
-                    # --- MOTOR DE DIBUJO ---
+                    # --- 🎨 MOTOR DE DIBUJO ---
                     imagen_final_mostrar = None
                     if imagen_pil:
                         # Buscamos el JSON en la respuesta de Gemini
@@ -168,13 +174,17 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué necesito para esta oficina de 165
                                     # Dibujamos según el tipo de dispositivo
                                     if disp['tipo'] == 'extintor':
                                         # Cuadrado Rojo para Extintores
-                                        draw.rectangle([px-12, py-12, px+12, py+12], fill="red", outline="black", width=2)
+                                        draw.rectangle([px-10, py-10, px+10, py+10], fill="red", outline="black", width=2)
                                     elif disp['tipo'] == 'detector':
-                                        # Círculo Azul para Detectores de Humo/Calor
-                                        draw.ellipse([px-10, py-10, px+10, py+10], fill="blue", outline="white", width=2)
+                                        # Círculo Azul para Detectores
+                                        draw.ellipse([px-8, py-8, px+8, py+8], fill="blue", outline="white", width=2)
                                     else:
                                         # Triángulo Amarillo para Alarmas o Luces
-                                        draw.polygon([(px, py-12), (px-12, py+12), (px+12, py+12)], fill="orange", outline="black")
+                                        draw.polygon([(px, py-10), (px-10, py+10), (px+10, py+10)], fill="orange", outline="black")
+                                    
+                                    # Dibujamos la leyenda (Label) al lado del dispositivo
+                                    # Usamos un color oscuro para legibilidad (Negro/Gris)
+                                    draw.text((px + 15, py - 5), disp['label'], fill="black")
                                 
                                 # Mostramos el plano con los elementos dibujados
                                 st.image(img_dibujo, caption="📐 Plano de Distribución de Seguridad Generado Automáticamente", use_container_width=True)
@@ -188,7 +198,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué necesito para esta oficina de 165
                         with st.expander("🔍 Ver los artículos originales extraídos del PDF"):
                             st.info(contexto_recuperado)
                     
-                    # Guardamos todo en la sesión del chat
+                    # Guardamos todo en la sesión
                     msg_guardar = {"rol": "assistant", "contenido": texto_informe}
                     if imagen_final_mostrar:
                         msg_guardar["imagen_dibujada"] = imagen_final_mostrar
@@ -207,5 +217,4 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué necesito para esta oficina de 165
                         break
             
             if not respuesta_generada:
-                estado_cascada.empty()
-                st.error("⚠️ Error de conexión con los servidores de IA.")
+                st.error("⚠️ Los servidores de Google rechazaron todas las peticiones.")
