@@ -57,7 +57,6 @@ except Exception as e:
 st.title("🔥 NDEseg: Procesamiento Inteligente de Planos")
 st.markdown("Sube tu plano en el formato que tengas (**Imagen, PDF o DXF**) para generar el informe técnico legal y los planos modificados.")
 
-# El cargador ahora acepta cualquier combinación
 archivos_subidos = st.file_uploader("📂 Sube tus archivos (Puedes subir uno solo o varios)", type=["png", "jpg", "jpeg", "pdf", "dxf"], accept_multiple_files=True)
 
 imagen_pil = None
@@ -89,7 +88,6 @@ if archivos_subidos:
                 nombre_dxf_descarga = f"NDEseg_{archivo.name}"
                 st.success(f"📐 Archivo AutoCAD DXF cargado: {archivo.name}")
                 
-                # Extraemos los textos del modelo CAD para darle contexto a la IA si no hay imagen
                 msp = dxf_doc.modelspace()
                 for entity in msp.query('TEXT MTEXT'):
                     txt = entity.dxf.text if entity.dxftype() == 'TEXT' else entity.text
@@ -103,7 +101,6 @@ if archivos_subidos:
 if imagen_pil:
     st.image(imagen_pil, caption="Vista previa del plano", use_container_width=True)
 
-# Memoria del chat
 if "mensajes" not in st.session_state:
     st.session_state.mensajes = []
 
@@ -135,7 +132,6 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
             except:
                 pass
             
-            # Construimos un contexto dinámico del plano para la IA si es solo texto vectorial
             contexto_estructural_dxf = ""
             if textos_cad_extraidos:
                 contexto_estructural_dxf = f"\nESTRUCTURA GEOMÉTRICA DETECTADA EN DXF (Nombres de salas y coordenadas):\n{json.dumps(textos_cad_extraidos)}"
@@ -164,7 +160,6 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
               {{"tipo": "detector", "x_pct": 45, "y_pct": 50, "label": "Detector Humo", "cad_x": 180.5, "cad_y": 210.4}}
             ]
             ```
-            (Si usas porcentajes pon los valores en x_pct e y_pct. Si usas coordenadas CAD cópialas directamente en cad_x y cad_y).
             """
             
             elementos_peticion = []
@@ -193,7 +188,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                     if bloque_json:
                         datos_dispositivos = json.loads(bloque_json.group(1).strip())
                         
-                        # --- MOTOR 1: DIBUJO EN IMAGEN (Si se subió imagen o PDF) ---
+                        # --- MOTOR 1: DIBUJO EN IMAGEN ---
                         if imagen_pil:
                             try:
                                 img_dibujo = imagen_pil.copy().convert("RGB")
@@ -221,32 +216,42 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                             except Exception as e:
                                 st.warning(f"Error en renderizado visual: {e}")
 
-                        # --- MOTOR 2: INYECCIÓN VECTORIAL EN DXF (Si se subió archivo AutoCAD) ---
+                        # --- MOTOR 2: INYECCIÓN VECTORIAL EN DXF ---
                         if dxf_doc:
                             try:
                                 msp = dxf_doc.modelspace()
                                 extents = bbox.extents(msp)
                                 
+                                # 🛠️ LA MAGIA DE LA ESCALA CAD: Medimos la caja geométrica total del plano
+                                if extents.has_data:
+                                    min_x, min_y = extents.extmin.x, extents.extmin.y
+                                    max_x, max_y = extents.extmax.x, extents.extmax.y
+                                    ancho_dxf = max_x - min_x
+                                    alto_dxf = max_y - min_y
+                                    
+                                    # El radio será el 0.8% del lado más corto del plano
+                                    radio_base_cad = min(ancho_dxf, alto_dxf) * 0.008
+                                else:
+                                    radio_base_cad = 1.0 # Resguardo por si el plano está corrupto
+                                
                                 for disp in datos_dispositivos:
-                                    # Si la IA nos dio coordenadas CAD directas del mapeo de texto, las usamos. 
-                                    # Si no, las calculamos mediante interpolación proporcional de la caja de límites.
                                     if 'cad_x' in disp and disp['cad_x'] is not None:
                                         dxf_x = disp['cad_x']
                                         dxf_y = disp['cad_y']
-                                        radio_cad = 15.0 # Radio estándar estimado si es puntual
                                     elif extents.has_data:
-                                        min_x, min_y = extents.extmin.x, extents.extmin.y
-                                        max_x, max_y = extents.extmax.x, extents.extmax.y
-                                        dxf_x = min_x + (disp['x_pct'] / 100.0) * (max_x - min_x)
-                                        dxf_y = max_y - (disp['y_pct'] / 100.0) * (max_y - min_y)
-                                        radio_cad = (max_x - min_x) * 0.012
+                                        dxf_x = min_x + (disp['x_pct'] / 100.0) * ancho_dxf
+                                        dxf_y = max_y - (disp['y_pct'] / 100.0) * alto_dxf
                                     else:
                                         continue
                                     
-                                    # Inyectamos las entidades nativas en AutoCAD
                                     color_cad = 1 if disp['tipo'] == 'extintor' else (5 if disp['tipo'] == 'detector' else 2)
-                                    msp.add_circle((dxf_x, dxf_y), radius=radio_cad, dxfattribs={'color': color_cad})
-                                    msp.add_text(disp['label'], dxfattribs={'height': radio_cad*1.2, 'color': color_cad}).set_placement((dxf_x + radio_cad*1.5, dxf_y))
+                                    
+                                    # Dibujamos usando el radio universal proporcional
+                                    msp.add_circle((dxf_x, dxf_y), radius=radio_base_cad, dxfattribs={'color': color_cad})
+                                    
+                                    # La altura del texto también se escala en base al mismo radio
+                                    alto_texto = radio_base_cad * 1.5
+                                    msp.add_text(disp['label'], dxfattribs={'height': alto_texto, 'color': color_cad}).set_placement((dxf_x + radio_base_cad*1.5, dxf_y))
                                 
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmp_out:
                                     dxf_doc.saveas(tmp_out.name)
