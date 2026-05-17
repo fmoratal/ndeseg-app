@@ -1,0 +1,6 @@
+streamlit
+chromadb
+google-genai
+onnxruntime
+tokenizers
+python-docx

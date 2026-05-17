@@ -1,0 +1,26 @@
+# TABLA OFICIAL DE ANEXOS - ORDENANZA 468/14 - MATRIZ DE REQUISITOS
+Esta tabla define los requisitos obligatorios de protección contra incendios según el uso, la superficie y la altura del edificio.
+
+| Uso / Clasificación | Superficie / Condición | Esquema Básico (Extintores) | Detección Centralizada (Alarmas/Sensores) | Protección Hidráulica (BIE / Rociadores / Reserva) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Residencial Unifamiliar / Bifamiliar** | Hasta 700 m2 (Hasta 2 niveles) | SI | NO | NO |
+| **Residencial Unifamiliar / Bifamiliar** | Más de 700 m2 o hasta 3 niveles | SI | SI | NO |
+| **Residencial Multifamiliar / Conjuntos** | Hasta 5 unidades de vivienda | SI | NO | NO |
+| **Residencial Multifamiliar / Conjuntos** | A partir de 7 viviendas (o más de 3 niveles) | SI | SI | SI (BIE y Reserva Técnica si supera altura) |
+| **Hoteles / Moteles / Hospedajes** | Cualquier superficie | SI | SI | SI (Red Hidráulica según altura y superficie) |
+| **Comercial (Compra/Venta de Mercaderías)** | Hasta 150 m2 | SI (1 por área) | NO | NO |
+| **Comercial (Compra/Venta de Mercaderías)** | De 151 m2 a 500 m2 | SI | SI | NO |
+| **Comercial (Compra/Venta de Mercaderías)** | Más de 500 m2 | SI | SI | SI (BIE y Reserva Técnica) |
+| **Administrativo / Oficinas** | Hasta 200 m2 | SI | NO | NO |
+| **Administrativo / Oficinas** | Más de 200 m2 | SI | SI | SI (Si supera niveles de altura exigidos) |
+| **Uso Público (Bares, Pubs, Comedores)** | Hasta 150 m2 | SI | NO | NO |
+| **Uso Público (Discotecas, Eventos, Teatros)** | Cualquier superficie | SI | SI | SI (Riesgo Clase III - Sistema completo) |
+| **Talleres de Reparación Menor** | Cualquier superficie | SI (y Baldes de Arena) | SI | NO (Salvo exigencia por superficie mayor) |
+| **Talleres de Reparación Mayor / Estaciones de Servicio** | Cualquier superficie | SI (Agente extintor específico y espuma) | SI | SI |
+| **Depósitos de Material Ordinario** | Hasta 300 m2 | SI | NO | NO |
+| **Depósitos de Material Ordinario** | Más de 300 m2 | SI | SI | SI (BIE, Válvulas 1,5" para Riesgo Moderado) |
+| **Depósitos de Metales y Textiles** | Más de 300 m2 | SI | SI | SI (BIE y Reserva Técnica 10.000L) |
+| **Depósitos de Combustibles Líquidos / Inflamables** | Hasta 200 m2 | SI (Agente especial) | SI | NO |
+| **Depósitos de Combustibles Líquidos / Inflamables** | De 201 m2 a 500 m2 | SI (Agente especial) | SI | SI (BIE y Rociadores según riesgo) |
+| **Depósitos de Combustibles Líquidos / Inflamables** | Más de 500 m2 | SI (Agente especial) | SI | SI (Red Hidráulica completa y Rociadores) |
+| **Depósitos de Agrotóxicos** | Cualquier superficie | SI | SI | SI |
