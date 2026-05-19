@@ -10,6 +10,7 @@ from pdf2image import convert_from_bytes
 import ezdxf
 from ezdxf import bbox
 import tempfile
+import math # <-- Necesario para el cálculo de distancias
 
 # --- 1. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Asistente NDEseg - Ordenanza 468", page_icon="🔥", layout="centered")
@@ -134,7 +135,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
             
             contexto_estructural_dxf = ""
             if textos_cad_extraidos:
-                contexto_estructural_dxf = f"\nESTRUCTURA GEOMÉTRICA DETECTADA EN DXF (Nombres de salas y coordenadas):\n{json.dumps(textos_cad_extraidos)}"
+                contexto_estructural_dxf = f"\nESTRUCTURA GEOMÉTRICA DETECTADA EN DXF (Salas y coordenadas):\n{json.dumps(textos_cad_extraidos)}"
 
             prompt_sistema = f"""
             Eres un ingeniero experto en Prevención contra Incendios. Tu objetivo es dictar un Informe Técnico completo basándote en la ley.
@@ -150,8 +151,8 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
             {contexto_estructural_dxf}
 
             INSTRUCCIONES DE COORDENADAS:
-            - Si hay una imagen/PDF adjunto, devuelve coordenadas aproximadas por PORCENTAJE (0 a 100) en base a lo que ves visualmente.
-            - Si NO hay imagen pero se te proveyó la "ESTRUCTURA GEOMÉTRICA DETECTADA EN DXF", debes leer los nombres de las salas y asignar las coordenadas EXACTAS (X, Y) que tienen esas etiquetas en la lista de arriba para colocar los dispositivos en los lugares correctos.
+            - Si hay imagen, usa porcentajes (0 a 100).
+            - Si NO hay imagen, usa las coordenadas (X, Y) exactas de los nombres de las salas detectadas.
 
             Formato JSON requerido estrictamente al final:
             ```json
@@ -177,7 +178,6 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                         config=types.GenerateContentConfig(temperature=0.1)
                     )
                     texto_respuesta = respuesta.text
-                    
                     texto_informe = re.sub(r'```json.*?```', '', texto_respuesta, flags=re.DOTALL)
                     st.markdown(texto_informe)
                     
@@ -195,13 +195,22 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                                 draw = ImageDraw.Draw(img_dibujo)
                                 ancho, alto = img_dibujo.size
                                 factor_base = (ancho + alto) / 1000.0
-                                font = ImageFont.load_default(size=max(int(factor_base * 12), 16))
+                                font = ImageFont.load_default(size=max(int(factor_base * 10), 12))
+                                
+                                posiciones_usadas_img = []
                                 
                                 for disp in datos_dispositivos:
                                     if 'x_pct' in disp and disp['x_pct'] is not None:
                                         px = int((disp['x_pct'] / 100) * ancho)
                                         py = int((disp['y_pct'] / 100) * alto)
-                                        r = int(factor_base * 9.0)
+                                        r = int(factor_base * 6.0)
+                                        
+                                        # Anti-Colisión Imagen
+                                        for ux, uy in posiciones_usadas_img:
+                                            if math.hypot(px - ux, py - uy) < (r * 3):
+                                                px += r * 3
+                                                py += r * 3
+                                        posiciones_usadas_img.append((px, py))
                                         
                                         if disp['tipo'] == 'extintor':
                                             draw.rectangle([px-r, py-r, px+r, py+r], fill=(255, 0, 0), outline="black", width=2)
@@ -209,7 +218,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                                             draw.ellipse([px-r, py-r, px+r, py+r], fill=(0, 0, 255), outline="white", width=2)
                                         else:
                                             draw.ellipse([px-r, py-r, px+r, py+r], fill=(255, 255, 0), outline="black", width=2)
-                                        draw.text((px + int(r * 1.5), py - int(r/2)), disp['label'], fill="black", font=font, stroke_width=2, stroke_fill="white")
+                                        draw.text((px + int(r * 1.2), py - int(r/2)), disp['label'], fill="black", font=font, stroke_width=2, stroke_fill="white")
                                 
                                 st.image(img_dibujo, caption="Plano Visual con Dispositivos Ubicados", use_container_width=True)
                                 imagen_final_mostrar = img_dibujo
@@ -222,18 +231,22 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                                 msp = dxf_doc.modelspace()
                                 extents = bbox.extents(msp)
                                 
-                                # 🛠️ LA MAGIA DE LA ESCALA CAD: Medimos la caja geométrica total del plano
                                 if extents.has_data:
                                     min_x, min_y = extents.extmin.x, extents.extmin.y
                                     max_x, max_y = extents.extmax.x, extents.extmax.y
                                     ancho_dxf = max_x - min_x
                                     alto_dxf = max_y - min_y
                                     
-                                    # El radio será el 0.8% del lado más corto del plano
-                                    radio_base_cad = min(ancho_dxf, alto_dxf) * 0.008
+                                    # Escala brutalmente reducida: Radio es 0.3% y Letra es un 80% de ese radio
+                                    radio_base_cad = min(ancho_dxf, alto_dxf) * 0.003 
+                                    alto_texto = radio_base_cad * 0.8
                                 else:
-                                    radio_base_cad = 1.0 # Resguardo por si el plano está corrupto
+                                    radio_base_cad = 1.0 
+                                    alto_texto = 0.8
                                 
+                                posiciones_usadas_cad = []
+                                distancia_minima_cad = radio_base_cad * 3.5 # Espacio para que no se toquen
+
                                 for disp in datos_dispositivos:
                                     if 'cad_x' in disp and disp['cad_x'] is not None:
                                         dxf_x = disp['cad_x']
@@ -244,14 +257,27 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                                     else:
                                         continue
                                     
+                                    # --- ALGORITMO ANTI-COLISIÓN CAD ---
+                                    colision = True
+                                    intentos = 0
+                                    while colision and intentos < 10:
+                                        colision = False
+                                        for ux, uy in posiciones_usadas_cad:
+                                            # Si la distancia entre el dispositivo nuevo y uno existente es muy corta...
+                                            if math.hypot(dxf_x - ux, dxf_y - uy) < distancia_minima_cad:
+                                                dxf_x += radio_base_cad * 2.5 # Lo empujamos a la derecha
+                                                dxf_y -= radio_base_cad * 2.5 # Lo empujamos hacia abajo
+                                                colision = True
+                                                break
+                                        intentos += 1
+                                    
+                                    posiciones_usadas_cad.append((dxf_x, dxf_y))
+                                    # -----------------------------------
+
                                     color_cad = 1 if disp['tipo'] == 'extintor' else (5 if disp['tipo'] == 'detector' else 2)
                                     
-                                    # Dibujamos usando el radio universal proporcional
                                     msp.add_circle((dxf_x, dxf_y), radius=radio_base_cad, dxfattribs={'color': color_cad})
-                                    
-                                    # La altura del texto también se escala en base al mismo radio
-                                    alto_texto = radio_base_cad * 1.5
-                                    msp.add_text(disp['label'], dxfattribs={'height': alto_texto, 'color': color_cad}).set_placement((dxf_x + radio_base_cad*1.5, dxf_y))
+                                    msp.add_text(disp['label'], dxfattribs={'height': alto_texto, 'color': color_cad}).set_placement((dxf_x + radio_base_cad*1.2, dxf_y))
                                 
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmp_out:
                                     dxf_doc.saveas(tmp_out.name)
