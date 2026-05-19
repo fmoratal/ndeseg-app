@@ -10,7 +10,14 @@ from pdf2image import convert_from_bytes
 import ezdxf
 from ezdxf import bbox
 import tempfile
-import math # <-- Necesario para el cálculo de distancias
+import math
+
+# --- LIBRERÍAS DEL MOTOR DE RENDERIZADO DXF ---
+import matplotlib
+matplotlib.use('Agg') # Evita errores en el servidor de Streamlit
+import matplotlib.pyplot as plt
+from ezdxf.addons.drawing import RenderContext, Frontend
+from ezdxf.addons.drawing.matplotlib import MatplotlibBackend
 
 # --- 1. CONFIGURACIÓN DE LA PÁGINA ---
 st.set_page_config(page_title="Asistente NDEseg - Ordenanza 468", page_icon="🔥", layout="centered")
@@ -55,14 +62,13 @@ except Exception as e:
     st.stop()
 
 # --- 3. DISEÑO DE LA INTERFAZ ---
-st.title("🔥 NDEseg: Procesamiento Inteligente de Planos")
-st.markdown("Sube tu plano en el formato que tengas (**Imagen, PDF o DXF**) para generar el informe técnico legal y los planos modificados.")
+st.title("🔥 NDEseg: Ingeniería Automática de Planos")
+st.markdown("Sube tu archivo DXF. El sistema lo leerá, lo renderizará visualmente para la IA, y luego inyectará los dispositivos en el archivo AutoCAD.")
 
-archivos_subidos = st.file_uploader("📂 Sube tus archivos (Puedes subir uno solo o varios)", type=["png", "jpg", "jpeg", "pdf", "dxf"], accept_multiple_files=True)
+archivos_subidos = st.file_uploader("📂 Sube tu archivo (PDF, DXF, PNG, JPG)", type=["png", "jpg", "jpeg", "pdf", "dxf"], accept_multiple_files=True)
 
 imagen_pil = None
 dxf_doc = None
-textos_cad_extraidos = []
 nombre_dxf_descarga = "Plano_Seguridad_NDEseg.dxf"
 
 if archivos_subidos:
@@ -89,18 +95,32 @@ if archivos_subidos:
                 nombre_dxf_descarga = f"NDEseg_{archivo.name}"
                 st.success(f"📐 Archivo AutoCAD DXF cargado: {archivo.name}")
                 
-                msp = dxf_doc.modelspace()
-                for entity in msp.query('TEXT MTEXT'):
-                    txt = entity.dxf.text if entity.dxftype() == 'TEXT' else entity.text
-                    txt_limpio = re.sub(r'\\P|\\{.*?\\}', ' ', txt).strip()
-                    if txt_limpio and len(txt_limpio) > 2:
-                        pos = entity.dxf.insert
-                        textos_cad_extraidos.append({"sala": txt_limpio, "x": pos.x, "y": pos.y})
+                # --- LA MAGIA: FOTOGRAFIAMOS EL DXF PARA LA IA ---
+                with st.spinner("Generando mapa visual desde AutoCAD para que la IA detecte paredes y puertas..."):
+                    try:
+                        msp = dxf_doc.modelspace()
+                        fig = plt.figure(dpi=200)
+                        ax = fig.add_axes([0, 0, 1, 1])
+                        ax.axis('off') # Quitamos ejes para no confundir a la IA
+                        
+                        ctx = RenderContext(dxf_doc)
+                        out = MatplotlibBackend(ax)
+                        Frontend(ctx, out).draw_layout(msp, finalize=True)
+                        
+                        tmp_img = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
+                        # Recortamos la imagen exactamente a los bordes de la estructura CAD
+                        fig.savefig(tmp_img.name, format='png', bbox_inches='tight', pad_inches=0, facecolor='white')
+                        plt.close(fig)
+                        
+                        imagen_pil = Image.open(tmp_img.name)
+                        st.success("👁️ ¡Ojos de IA activados! El DXF fue renderizado correctamente.")
+                    except Exception as img_err:
+                        st.warning(f"No se pudo generar la foto del DXF. La IA operará a ciegas. Error: {img_err}")
             except Exception as e:
                 st.error(f"Error al procesar el archivo DXF: {e}")
 
 if imagen_pil:
-    st.image(imagen_pil, caption="Vista previa del plano", use_container_width=True)
+    st.image(imagen_pil, caption="Vista que analizará la Inteligencia Artificial", use_container_width=True)
 
 if "mensajes" not in st.session_state:
     st.session_state.mensajes = []
@@ -121,7 +141,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
     st.session_state.mensajes.append({"rol": "user", "contenido": prompt_usuario})
 
     with st.chat_message("assistant"):
-        with st.spinner("Procesando ingeniería normativa..."):
+        with st.spinner("Procesando ingeniería normativa y ubicando dispositivos espacialmente..."):
             
             resultados = db_collection.query(query_texts=[prompt_usuario], n_results=10)
             contexto_recuperado = "\n\n---\n\n".join(resultados['documents'][0]) if resultados['documents'] else ""
@@ -132,33 +152,26 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                     tabla_memoria = f.read()
             except:
                 pass
-            
-            contexto_estructural_dxf = ""
-            if textos_cad_extraidos:
-                contexto_estructural_dxf = f"\nESTRUCTURA GEOMÉTRICA DETECTADA EN DXF (Salas y coordenadas):\n{json.dumps(textos_cad_extraidos)}"
 
             prompt_sistema = f"""
             Eres un ingeniero experto en Prevención contra Incendios. Tu objetivo es dictar un Informe Técnico completo basándote en la ley.
             
             NORMATIVA APLICABLE:
             {contexto_recuperado}
-            
-            TABLA DE ANEXOS:
-            {tabla_memoria}
-            
-            CONSULTA DEL USUARIO:
-            {prompt_usuario}
-            {contexto_estructural_dxf}
+            TABLA DE ANEXOS: {tabla_memoria}
+            CONSULTA DEL USUARIO: {prompt_usuario}
 
-            INSTRUCCIONES DE COORDENADAS:
-            - Si hay imagen, usa porcentajes (0 a 100).
-            - Si NO hay imagen, usa las coordenadas (X, Y) exactas de los nombres de las salas detectadas.
+            INSTRUCCIONES DE UBICACIÓN VISUAL:
+            La imagen adjunta es el plano del edificio. Analiza las PAREDES y PUERTAS.
+            - EXTINTORES: Ubícalos pegados a las paredes, cerca de las PUERTAS de acceso/salida.
+            - DETECTORES: Ubícalos en el CENTRO de los recintos, lejos de las paredes.
+            Devuelve las coordenadas visuales en porcentajes (x_pct e y_pct del 0 al 100). Evita agrupar todo en un mismo punto.
 
             Formato JSON requerido estrictamente al final:
             ```json
             [
-              {{"tipo": "extintor", "x_pct": 15, "y_pct": 20, "label": "Extintor ABC 4kg", "cad_x": 145.2, "cad_y": 320.1}},
-              {{"tipo": "detector", "x_pct": 45, "y_pct": 50, "label": "Detector Humo", "cad_x": 180.5, "cad_y": 210.4}}
+              {{"tipo": "extintor", "x_pct": 15, "y_pct": 20, "label": "Extintor 4kg"}},
+              {{"tipo": "detector", "x_pct": 45, "y_pct": 50, "label": "Det. Humo"}}
             ]
             ```
             """
@@ -187,8 +200,8 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                     bloque_json = re.search(r'```json(.*?)```', texto_respuesta, flags=re.DOTALL)
                     if bloque_json:
                         datos_dispositivos = json.loads(bloque_json.group(1).strip())
-                        
-                        # --- MOTOR 1: DIBUJO EN IMAGEN ---
+
+                        # --- MOTOR 1: DIBUJO EN LA IMAGEN DE VISTA PREVIA ---
                         if imagen_pil:
                             try:
                                 img_dibujo = imagen_pil.copy().convert("RGB")
@@ -197,20 +210,11 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                                 factor_base = (ancho + alto) / 1000.0
                                 font = ImageFont.load_default(size=max(int(factor_base * 10), 12))
                                 
-                                posiciones_usadas_img = []
-                                
                                 for disp in datos_dispositivos:
                                     if 'x_pct' in disp and disp['x_pct'] is not None:
                                         px = int((disp['x_pct'] / 100) * ancho)
                                         py = int((disp['y_pct'] / 100) * alto)
                                         r = int(factor_base * 6.0)
-                                        
-                                        # Anti-Colisión Imagen
-                                        for ux, uy in posiciones_usadas_img:
-                                            if math.hypot(px - ux, py - uy) < (r * 3):
-                                                px += r * 3
-                                                py += r * 3
-                                        posiciones_usadas_img.append((px, py))
                                         
                                         if disp['tipo'] == 'extintor':
                                             draw.rectangle([px-r, py-r, px+r, py+r], fill=(255, 0, 0), outline="black", width=2)
@@ -225,7 +229,7 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                             except Exception as e:
                                 st.warning(f"Error en renderizado visual: {e}")
 
-                        # --- MOTOR 2: INYECCIÓN VECTORIAL EN DXF ---
+                        # --- MOTOR 2: INYECCIÓN VECTORIAL MATEMÁTICA EN DXF ---
                         if dxf_doc:
                             try:
                                 msp = dxf_doc.modelspace()
@@ -237,47 +241,42 @@ if prompt_usuario := st.chat_input("Ej. ¿Qué dispositivos de seguridad contra 
                                     ancho_dxf = max_x - min_x
                                     alto_dxf = max_y - min_y
                                     
-                                    # Escala brutalmente reducida: Radio es 0.3% y Letra es un 80% de ese radio
+                                    # Tamaños ultra-ajustados para planos reales (0.3% del lado más corto)
                                     radio_base_cad = min(ancho_dxf, alto_dxf) * 0.003 
                                     alto_texto = radio_base_cad * 0.8
                                 else:
+                                    min_x, min_y, max_x, max_y, ancho_dxf, alto_dxf = 0, 0, 100, 100, 100, 100
                                     radio_base_cad = 1.0 
                                     alto_texto = 0.8
                                 
                                 posiciones_usadas_cad = []
-                                distancia_minima_cad = radio_base_cad * 3.5 # Espacio para que no se toquen
+                                distancia_minima_cad = radio_base_cad * 3.5
 
                                 for disp in datos_dispositivos:
-                                    if 'cad_x' in disp and disp['cad_x'] is not None:
-                                        dxf_x = disp['cad_x']
-                                        dxf_y = disp['cad_y']
-                                    elif extents.has_data:
+                                    if 'x_pct' in disp and disp['x_pct'] is not None:
+                                        # MAPEO MAESTRO: Traduce la foto renderizada a coordenadas reales AutoCAD
                                         dxf_x = min_x + (disp['x_pct'] / 100.0) * ancho_dxf
                                         dxf_y = max_y - (disp['y_pct'] / 100.0) * alto_dxf
-                                    else:
-                                        continue
-                                    
-                                    # --- ALGORITMO ANTI-COLISIÓN CAD ---
-                                    colision = True
-                                    intentos = 0
-                                    while colision and intentos < 10:
-                                        colision = False
-                                        for ux, uy in posiciones_usadas_cad:
-                                            # Si la distancia entre el dispositivo nuevo y uno existente es muy corta...
-                                            if math.hypot(dxf_x - ux, dxf_y - uy) < distancia_minima_cad:
-                                                dxf_x += radio_base_cad * 2.5 # Lo empujamos a la derecha
-                                                dxf_y -= radio_base_cad * 2.5 # Lo empujamos hacia abajo
-                                                colision = True
+                                        
+                                        # ALGORITMO ANTI-COLISIÓN (Desplaza el icono si cae encima de otro)
+                                        intentos = 0
+                                        while intentos < 10:
+                                            colision = False
+                                            for ux, uy in posiciones_usadas_cad:
+                                                if math.hypot(dxf_x - ux, dxf_y - uy) < distancia_minima_cad:
+                                                    dxf_x += radio_base_cad * 2.5
+                                                    dxf_y -= radio_base_cad * 2.5
+                                                    colision = True
+                                                    break
+                                            if not colision:
                                                 break
-                                        intentos += 1
-                                    
-                                    posiciones_usadas_cad.append((dxf_x, dxf_y))
-                                    # -----------------------------------
-
-                                    color_cad = 1 if disp['tipo'] == 'extintor' else (5 if disp['tipo'] == 'detector' else 2)
-                                    
-                                    msp.add_circle((dxf_x, dxf_y), radius=radio_base_cad, dxfattribs={'color': color_cad})
-                                    msp.add_text(disp['label'], dxfattribs={'height': alto_texto, 'color': color_cad}).set_placement((dxf_x + radio_base_cad*1.2, dxf_y))
+                                            intentos += 1
+                                        
+                                        posiciones_usadas_cad.append((dxf_x, dxf_y))
+                                        
+                                        color_cad = 1 if disp['tipo'] == 'extintor' else (5 if disp['tipo'] == 'detector' else 2)
+                                        msp.add_circle((dxf_x, dxf_y), radius=radio_base_cad, dxfattribs={'color': color_cad})
+                                        msp.add_text(disp['label'], dxfattribs={'height': alto_texto, 'color': color_cad}).set_placement((dxf_x + radio_base_cad*1.2, dxf_y))
                                 
                                 with tempfile.NamedTemporaryFile(delete=False, suffix=".dxf") as tmp_out:
                                     dxf_doc.saveas(tmp_out.name)
